@@ -48,9 +48,9 @@ def parse_products(soup: BeautifulSoup):
         stara_cijena_text = stara_span.get_text(strip=True) if stara_span else "unknown"
 
         proizvodi.append({
-            "naziv": product_naziv,
-            "nova_cijena": nova_cijena,
-            "stara_cijena": stara_cijena_text,
+            "naziv_in": product_naziv,
+            "nova_cijena_in": nova_cijena,
+            "stara_cijena_in": stara_cijena_text,
         })
 
     return proizvodi
@@ -72,14 +72,14 @@ def find_total_pages_from_indicator(soup: BeautifulSoup) -> int | None:
 @app.get("/")  
 async def scrape_all_pages(): 
     title = "Instar"
-    base_url = "https://www.instar-informatika.hr/hit-proizvod/13/offer/?p={page}&s=70"
-    first_soup = fetch_soup(base_url.format(page=1))
+    url = "https://www.instar-informatika.hr/hit-proizvod/13/offer/?p={page}&s=70"
+    first_soup = fetch_soup(url.format(page=1))
     ukupno_stranica = find_total_pages_from_indicator(first_soup)
     zadnja_stranica = ukupno_stranica if ukupno_stranica else 1
     print(f"Zadnja stranica je: {zadnja_stranica}")
 
     # Ako je vise stranica, uzmi zadnju, inace samo prva
-    final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(base_url.format(page=zadnja_stranica))
+    final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(url.format(page=zadnja_stranica))
 
     proizvodi = parse_products(final_soup)
     print(f"Scraping stranicu {zadnja_stranica} -> {len(proizvodi)} proizvoda")
