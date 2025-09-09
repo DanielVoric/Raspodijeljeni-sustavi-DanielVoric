@@ -11,7 +11,6 @@ HEADERS = {
 }
 
 def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
-    # Cijeli URL sastavljen ovdje (ne koristimo vise BASE/COMMON konstante)
     url = f"https://www.links.hr/hr/links-akcija?pagenumber={page_number}&orderby=0&pagesize=48&viewmode=grid&price=29-3629"
     resp = requests.get(url, headers=HEADERS, timeout=15)
     if resp.status_code != 200:
