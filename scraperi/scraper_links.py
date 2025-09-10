@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 
-app = FastAPI()
+app_scraper_links = FastAPI()
 
 
 HEADERS = {
@@ -42,7 +42,7 @@ def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
 
     return proizvodi
 
-@app.get("/")
+@app_scraper_links.get("/")
 async def scrape_all_pages():
     proizvodi: List[Dict[str, Optional[str]]] = []
     page = 1

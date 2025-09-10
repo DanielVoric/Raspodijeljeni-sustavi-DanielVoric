@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 
-app = FastAPI()
+app_scraper_chipoteka = FastAPI()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -52,7 +52,7 @@ def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
 
     return proizvodi
 
-@app.get("/")
+@app_scraper_chipoteka.get("/")
 async def scrape_all_pages():
     proizvodi: List[Dict[str, Optional[str]]] = []
     page = 1

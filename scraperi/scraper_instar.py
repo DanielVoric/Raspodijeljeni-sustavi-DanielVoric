@@ -5,8 +5,9 @@ from fastapi import FastAPI
 import requests
 from bs4 import BeautifulSoup
 import re
+from .celery_app import app
 
-app = FastAPI()
+app_scraper_instar= FastAPI()
 
 # header - ne radi bez
 DEFAULT_HEADERS = {
@@ -69,7 +70,7 @@ def find_total_pages_from_indicator(soup: BeautifulSoup) -> int | None:
     return None
 
 
-@app.get("/")  
+@app_scraper_instar.get("/")  
 async def scrape_all_pages(): 
     title = "Instar"
     url = "https://www.instar-informatika.hr/hit-proizvod/13/offer/?p={page}&s=70"
@@ -86,3 +87,14 @@ async def scrape_all_pages():
     return {"data": proizvodi, "title": title}
 
 #uvicorn scraper_instar:app --reload --port 8000
+
+
+@app.task(name='scraperi.scraper_instar.scrape_instar')
+def scrape_instar():
+    url = "https://www.instar-informatika.hr/hit-proizvod/13/offer/?p={page}&s=70"
+    first_soup = fetch_soup(url.format(page=1))
+    ukupno_stranica = find_total_pages_from_indicator(first_soup)
+    zadnja_stranica = ukupno_stranica if ukupno_stranica else 1
+    final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(url.format(page=zadnja_stranica))
+    proizvodi = parse_products(final_soup)
+    return proizvodi
