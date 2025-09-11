@@ -1,13 +1,7 @@
-
-#uvicorn scraper_instar:app --reload --port 8000
-
-from fastapi import FastAPI
 import requests
 from bs4 import BeautifulSoup
 import re
 from .celery_app import app
-
-app_scraper_instar= FastAPI()
 
 # header - ne radi bez
 DEFAULT_HEADERS = {
@@ -37,19 +31,35 @@ def parse_products(soup: BeautifulSoup):
         if not title_el:
             continue
         product_title = title_el.get_text(strip=True)
-        # current price
         new_el = card.select_one("span.standard-price.price-akcija")
         price_new = new_el.get_text(strip=True) if new_el else "unknown"
 
-        # old price
         old_container = card.select_one("div.pricelistpriceLow")
         old_span = old_container.find("span") if old_container else None
         price_old_text = old_span.get_text(strip=True) if old_span else "unknown"
+
+        def _parse_price(text: str | None):
+            if not text:
+                return None
+            s = text.strip()
+            s = ''.join(ch for ch in s if ch.isdigit() or ch in ',.')
+            s = s.replace('.', '').replace(',', '.')
+            try:
+                return float(s)
+            except ValueError:
+                return None
+
+        new_val = _parse_price(price_new)
+        old_val = _parse_price(price_old_text)
+        discount = None
+        if new_val is not None and old_val and old_val > 0:
+            discount = round((old_val - new_val) / old_val * 100, 2)
 
         products.append({
             "name": product_title,
             "price_new": price_new,
             "price_old": price_old_text,
+            "discount_pct": discount,
             "source": "instar",
         })
 
@@ -60,40 +70,23 @@ def parse_products(soup: BeautifulSoup):
 def find_total_pages_from_indicator(soup: BeautifulSoup) -> int | None:
     el = soup.select_one("span.pageNo")
     text = el.get_text(" ", strip=True) if el else soup.get_text(" ", strip=True)
-    broj_str = re.search(r"str\.?\s*\d+\s*/\s*(\d+)", text, flags=re.IGNORECASE)
-    if broj_str:
+    page_num = re.search(r"str\.?\s*\d+\s*/\s*(\d+)", text, flags=re.IGNORECASE)
+    if page_num:
         try:
-            return int(broj_str.group(1))
+            return int(page_num.group(1))
         except ValueError:
             return None
     return None
 
 
-@app_scraper_instar.get("/")  
-async def scrape_all_pages(): 
-    title = "Instar"
-    url = "https://www.instar-informatika.hr/hit-proizvod/13/offer/?p={page}&s=70"
-    first_soup = fetch_soup(url.format(page=1))
-    ukupno_stranica = find_total_pages_from_indicator(first_soup)
-    zadnja_stranica = ukupno_stranica if ukupno_stranica else 1
-    print(f"Zadnja stranica je: {zadnja_stranica}")
-
-    # Ako je vise stranica, uzmi zadnju, inace samo prva
-    final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(url.format(page=zadnja_stranica))
-
-    products = parse_products(final_soup)
-    print(f"Scraping page {zadnja_stranica} -> {len(products)} products")
-    return {"data": products, "title": title}
-
-#uvicorn scraper_instar:app --reload --port 8000
 
 
 @app.task(name='scraperi.scraper_instar.scrape_instar')
 def scrape_instar():
     url = "https://www.instar-informatika.hr/hit-proizvod/13/offer/?p={page}&s=70"
     first_soup = fetch_soup(url.format(page=1))
-    ukupno_stranica = find_total_pages_from_indicator(first_soup)
-    zadnja_stranica = ukupno_stranica if ukupno_stranica else 1
-    final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(url.format(page=zadnja_stranica))
+    total_pages = find_total_pages_from_indicator(first_soup)
+    last_page = total_pages if total_pages else 1
+    final_soup = first_soup if last_page == 1 else fetch_soup(url.format(page=last_page))
     products = parse_products(final_soup)
     return products

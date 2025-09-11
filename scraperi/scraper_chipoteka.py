@@ -1,13 +1,22 @@
-from fastapi import FastAPI
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 from .celery_app import app 
-app_scraper_chipoteka = FastAPI()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
+
+def _parse_price(text: Optional[str]) -> Optional[float]:
+    if not text:
+        return None
+    s = text.strip()
+    s = ''.join(ch for ch in s if ch.isdigit() or ch in ',.')
+    s = s.replace('.', '').replace(',', '.')
+    try:
+        return float(s)
+    except ValueError:
+        return None
 
 def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
     url = (
@@ -44,10 +53,17 @@ def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
             if len(spans) >= 2:
                 price_new = spans[1].get_text(strip=True)
 
+        new_val = _parse_price(price_new)
+        old_val = _parse_price(price_old)
+        discount = None
+        if new_val is not None and old_val and old_val > 0:
+            discount = round((old_val - new_val) / old_val * 100, 2)
+
         products.append({
             "name": title,
             "price_new": price_new,
             "price_old": price_old,
+            "discount_pct": discount,
             "source": "chipoteka",
         })
 
@@ -76,18 +92,5 @@ def scrape_chipoteka_chunk(start_page: int, end_page: int):
         collected.extend(part)
     return collected
 
-@app_scraper_chipoteka.get("/")
-async def scrape_all_pages():
-    last = detect_last_page()
-    if last == 0:
-        return {"data": [], "title": "Chipoteka", "count": 0}
-    products: List[Dict[str, Optional[str]]] = []
-    for p in range(1, last + 1):
-        items = scrape_page(p)
-        if not items:
-            break
-        products.extend(items)
-    return {"data": products, "title": "Chipoteka", "count": len(products)}
 
-#uvicorn scraper_chipoteka:app --reload --port 8003
 

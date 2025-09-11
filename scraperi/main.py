@@ -2,49 +2,13 @@ import uvicorn
 import re
 from fastapi import FastAPI, Body
 from celery.result import AsyncResult
-from .scraper_links import detect_last_page
-from .scraper_chipoteka import detect_last_page as detect_last_page_chip
+from fastapi.staticfiles import StaticFiles
 from .celery_app import app as celery_client 
 from database.db import artikli
 
 app = FastAPI()
 
-@app.get("/")
-async def root():
-    return {"message": "Service running"}
-
-@app.post("/scrape/instar")
-async def scrape_instar():
-    task = celery_client.send_task('scraperi.scraper_instar.scrape_instar', queue='instar_queue')
-    return {"task_id": task.id}
-
-@app.post("/scrape/links")
-async def scrape_links_full():
-    last = detect_last_page()
-    if last == 0:
-        return {"task_ids": [], "message": "No pages"}
-    task_ids = []
-    start = 1
-    while start <= last:
-        end = min(start + 4, last)  
-        t = celery_client.send_task('scraperi.scraper_links.scrape_links_chunk', args=[start, end], queue='links_queue')
-        task_ids.append(t.id)
-        start = end + 1
-    return {"task_ids": task_ids, "pages": last, "chunk_size": 5}
-
-@app.post("/scrape/chipoteka")
-async def scrape_chipoteka_full():
-    last = detect_last_page_chip()
-    if last == 0:
-        return {"task_ids": [], "message": "No pages"}
-    task_ids = []
-    start = 1
-    while start <= last:
-        end = min(start + 4, last)
-        t = celery_client.send_task('scraperi.scraper_chipoteka.scrape_chipoteka_chunk', args=[start, end], queue='chipoteka_queue')
-        task_ids.append(t.id)
-        start = end + 1
-    return {"task_ids": task_ids, "pages": last, "chunk_size": 5}
+app.mount("/ui", StaticFiles(directory="static", html=True), name="ui")
 
 
 @app.post("/scrape/all")
@@ -89,16 +53,14 @@ async def scrape_all_shops():
         "all_task_ids_csv": ",".join(all_ids),
     }
 
-
-@app.get("/results/{task_id}")
-async def get_task_result(task_id: str):
-    result = AsyncResult(task_id, app=celery_client)
-    if result.successful():
-        return {"status": result.state, "result": result.result}
-    if result.failed():
-        return {"status": result.state, "error": str(result.result)}
-    return {"status": result.state}
-
+@app.get("/database/ping")
+async def database_ping():
+    try:
+        client = artikli.database.client
+        client.admin.command('ping')
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def _merge_task_ids(ids: list[str]):
     all_items = []
@@ -130,6 +92,18 @@ async def merge_results_post(raw: str = Body(..., media_type="text/plain")):
     return _merge_task_ids(ids)
 
 
+@app.get("/database/list")
+async def database_list(limit: int = 500):
+    try:
+        if limit <= 0:
+            limit = 1
+        cursor = artikli.find({}, {"_id": 0}).limit(limit)
+        items = list(cursor)
+        return {"count": len(items), "items": items}
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
 @app.post("/results/save")
 async def save_results_post(raw: str = Body(..., media_type="text/plain")):
     ids = re.findall(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', raw)
@@ -139,7 +113,7 @@ async def save_results_post(raw: str = Body(..., media_type="text/plain")):
     error = None
     if items:
         try:
-            res = artikli.insert_many(items)
+            res = artikli.insert_many(items, ordered=False)
             inserted = len(res.inserted_ids)
         except Exception as e:
             error = str(e)

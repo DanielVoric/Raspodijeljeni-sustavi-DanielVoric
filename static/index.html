@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>AkcijoSC</title>
+	<style>
+		body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+		h1 { font-size: 20px; margin: 0 0 12px; }
+		.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin: 12px 0 16px; }
+		button { padding: 8px 12px; cursor: pointer; }
+		input, textarea { font-family: inherit; }
+		#taskIds { width: 100%; height: 64px; }
+		table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+		th, td { border: 1px solid #ddd; padding: 8px; }
+		th { background: #f3f3f3; text-align: left; }
+		.muted { color: #666; font-size: 12px; }
+		.status { margin-left: 8px; font-size: 13px; }
+	</style>
+</head>
+<body>
+	<h1>AkcijoSC</h1>
+
+	<div class="row">
+		<button id="startBtn">Start /scrape/all</button>
+		<span class="status" id="startStatus"></span>
+	</div>
+
+	<div class="row">
+		<button id="mergeBtn">Merge Results</button>
+		<button id="saveBtn">Save to DB</button>
+		<button id="clearBtn">Clear DB</button>
+		<span class="status" id="actionStatus"></span>
+	</div>
+
+	<div class="row">
+		<button id="loadTableBtn">Load Table (from Merge)</button>
+		<button id="loadDbBtn">Load from DB</button>
+		<input id="dbLimit" type="number" min="1" value="200" style="width:90px" />
+	</div>
+
+	<div class="row">
+		<input id="searchQuery" type="text" placeholder="Search name..." />
+		<button id="searchBtn">Search</button>
+		<button id="clearSearchBtn">Clear</button>
+	</div>
+
+	<div class="row">
+		<label for="sortKey">Sort:</label>
+		<select id="sortKey">
+			<option value="">(none)</option>
+			<option value="price_new">Price</option>
+			<option value="discount_pct">Discount %</option>
+		</select>
+		<select id="sortDir">
+			<option value="desc">Desc</option>
+			<option value="asc">Asc</option>
+		</select>
+		<button id="applySortBtn">Apply</button>
+	</div>
+
+	<table id="resultsTable">
+		<thead>
+			<tr>
+				<th>Source</th>
+				<th>Name</th>
+				<th>Price New</th>
+				<th>Price Old</th>
+				<th>Discount %</th>
+			</tr>
+		</thead>
+		<tbody></tbody>
+	</table>
+
+	<script>
+		const startBtn = document.getElementById('startBtn');
+		const startStatus = document.getElementById('startStatus');
+		const mergeBtn = document.getElementById('mergeBtn');
+		const saveBtn = document.getElementById('saveBtn');
+		const clearBtn = document.getElementById('clearBtn');
+		const actionStatus = document.getElementById('actionStatus');
+		let currentTaskIds = [];
+		const loadTableBtn = document.getElementById('loadTableBtn');
+		const loadDbBtn = document.getElementById('loadDbBtn');
+		const dbLimit = document.getElementById('dbLimit');
+		const searchQuery = document.getElementById('searchQuery');
+		const searchBtn = document.getElementById('searchBtn');
+		const clearSearchBtn = document.getElementById('clearSearchBtn');
+		const sortKey = document.getElementById('sortKey');
+		const sortDir = document.getElementById('sortDir');
+		const applySortBtn = document.getElementById('applySortBtn');
+		const tableBody = document.querySelector('#resultsTable tbody');
+		let loadedItems = [];
+		let currentSearch = '';
+		function parsePrice(text) {
+			if (!text) return NaN;
+			let s = String(text).trim();
+			s = Array.from(s).filter(ch => /[0-9,.]/.test(ch)).join('');
+			s = s.replaceAll('.', '').replace(',', '.');
+			const v = parseFloat(s);
+			return Number.isFinite(v) ? v : NaN;
+		}
+
+		function applyFilterSort(items) {
+			let arr = items;
+			if (currentSearch) {
+				const q = currentSearch.toLowerCase();
+				arr = arr.filter(it => (it.name || '').toLowerCase().includes(q));
+			}
+			const key = sortKey.value;
+			const dir = sortDir.value;
+			if (key) {
+				arr = [...arr].sort((a, b) => {
+					let va, vb;
+					if (key === 'price_new') {
+						va = parsePrice(a.price_new);
+						vb = parsePrice(b.price_new);
+					} else if (key === 'discount_pct') {
+						va = typeof a.discount_pct === 'number' ? a.discount_pct : NaN;
+						vb = typeof b.discount_pct === 'number' ? b.discount_pct : NaN;
+					} else {
+						return 0;
+					}
+					// NaNs go to end
+					if (Number.isNaN(va) && Number.isNaN(vb)) return 0;
+					if (Number.isNaN(va)) return 1;
+					if (Number.isNaN(vb)) return -1;
+					return dir === 'asc' ? va - vb : vb - va;
+				});
+			}
+			return arr;
+		}
+
+		function render(items) {
+			tableBody.innerHTML = '';
+			for (const it of items) {
+				const tr = document.createElement('tr');
+				const tdSource = document.createElement('td');
+				const tdName = document.createElement('td');
+				const tdNew = document.createElement('td');
+				const tdOld = document.createElement('td');
+				const tdDisc = document.createElement('td');
+				tdSource.textContent = it.source || '';
+				tdName.textContent = it.name || '';
+				tdNew.textContent = it.price_new || '';
+				tdOld.textContent = it.price_old || '';
+				tdDisc.textContent = (typeof it.discount_pct === 'number') ? `${it.discount_pct}%` : '';
+				tr.append(tdSource, tdName, tdNew, tdOld, tdDisc);
+				tableBody.appendChild(tr);
+			}
+		}
+
+		function refreshView() {
+			const view = applyFilterSort(loadedItems);
+			render(view);
+			setStatus(actionStatus, `Showing ${view.length} of ${loadedItems.length}`);
+		}
+
+		function setStatus(el, msg, ok=true) {
+			el.textContent = msg;
+			el.style.color = ok ? '#0a0' : '#c00';
+		}
+
+		startBtn.addEventListener('click', async () => {
+			setStatus(startStatus, 'Starting…', true);
+			try {
+				const res = await fetch('/scrape/all', { method: 'POST' });
+				if (!res.ok) throw new Error('HTTP ' + res.status);
+				const data = await res.json();
+				currentTaskIds = data.all_task_ids || [];
+				setStatus(startStatus, `Started ${currentTaskIds.length} tasks`);
+			} catch (err) {
+				setStatus(startStatus, 'Failed: ' + err.message, false);
+			}
+		});
+
+		async function postIds(path) {
+			if (!currentTaskIds || currentTaskIds.length === 0) throw new Error('No task IDs available. Start a scrape first.');
+			const body = currentTaskIds.join(',');
+			const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
+			if (!res.ok) throw new Error('HTTP ' + res.status);
+			return res.json();
+		}
+
+		mergeBtn.addEventListener('click', async () => {
+			setStatus(actionStatus, 'Merging…', true);
+			try {
+				const data = await postIds('/results/merge');
+				setStatus(actionStatus, `Merged ${data.merged_count} items, ${data.incomplete?.length || 0} pending`);
+			} catch (err) {
+				setStatus(actionStatus, 'Failed: ' + err.message, false);
+			}
+		});
+
+		saveBtn.addEventListener('click', async () => {
+			setStatus(actionStatus, 'Saving…', true);
+			try {
+				const data = await postIds('/results/save');
+				setStatus(actionStatus, `Saved ${data.saved} items` + (data.error ? ' (error: ' + data.error + ')' : ''));
+			} catch (err) {
+				setStatus(actionStatus, 'Failed: ' + err.message, false);
+			}
+		});
+
+		clearBtn.addEventListener('click', async () => {
+			if (!confirm('Clear all documents from DB?')) return;
+			setStatus(actionStatus, 'Clearing…', true);
+			try {
+				const res = await fetch('/database/clear', { method: 'DELETE' });
+				if (!res.ok) throw new Error('HTTP ' + res.status);
+				const data = await res.json();
+				setStatus(actionStatus, `Deleted ${data.deleted}`);
+			} catch (err) {
+				setStatus(actionStatus, 'Failed: ' + err.message, false);
+			}
+		});
+
+		loadTableBtn.addEventListener('click', async () => {
+			setStatus(actionStatus, 'Loading table…', true);
+			try {
+				const data = await postIds('/results/merge');
+				loadedItems = data.items || [];
+				refreshView();
+			} catch (err) {
+				setStatus(actionStatus, 'Failed: ' + err.message, false);
+			}
+		});
+
+		loadDbBtn.addEventListener('click', async () => {
+			setStatus(actionStatus, 'Loading from DB…', true);
+			try {
+				const lim = Math.max(1, parseInt(dbLimit.value || '200', 10));
+				const res = await fetch(`/database/list?limit=${encodeURIComponent(lim)}`);
+				if (!res.ok) throw new Error('HTTP ' + res.status);
+				const data = await res.json();
+				loadedItems = data.items || [];
+				refreshView();
+			} catch (err) {
+				setStatus(actionStatus, 'Failed: ' + err.message, false);
+			}
+		});
+
+		searchBtn.addEventListener('click', () => {
+			currentSearch = (searchQuery.value || '').trim();
+			refreshView();
+		});
+
+		clearSearchBtn.addEventListener('click', () => {
+			currentSearch = '';
+			searchQuery.value = '';
+			refreshView();
+		});
+
+		applySortBtn.addEventListener('click', () => {
+			refreshView();
+		});
+	</script>
+</body>
+</html>
