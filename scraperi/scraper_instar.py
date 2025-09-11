@@ -26,35 +26,34 @@ def fetch_soup(url: str) -> BeautifulSoup:
 
 
 def parse_products(soup: BeautifulSoup):
-    proizvodi = []
+    products = []
 
     cards = soup.find_all("div", class_="product-item-box")
 
     for card in cards:
-        naziv_el = (
+        title_el = (
             card.find("h2", class_="title")
         )
-        if not naziv_el:
+        if not title_el:
             continue
-        product_naziv = naziv_el.get_text(strip=True)
-        #makne smetnje oko naziva proizvoda
+        product_title = title_el.get_text(strip=True)
+        # current price
+        new_el = card.select_one("span.standard-price.price-akcija")
+        price_new = new_el.get_text(strip=True) if new_el else "unknown"
 
-    #trenutna cijena
-        nova_el = card.select_one("span.standard-price.price-akcija")
-        nova_cijena = nova_el.get_text(strip=True) if nova_el else "unknown"
+        # old price
+        old_container = card.select_one("div.pricelistpriceLow")
+        old_span = old_container.find("span") if old_container else None
+        price_old_text = old_span.get_text(strip=True) if old_span else "unknown"
 
-    #stara cijena
-        stara_container = card.select_one("div.pricelistpriceLow")
-        stara_span = stara_container.find("span") if stara_container else None
-        stara_cijena_text = stara_span.get_text(strip=True) if stara_span else "unknown"
-
-        proizvodi.append({
-            "naziv_in": product_naziv,
-            "nova_cijena_in": nova_cijena,
-            "stara_cijena_in": stara_cijena_text,
+        products.append({
+            "name": product_title,
+            "price_new": price_new,
+            "price_old": price_old_text,
+            "source": "instar",
         })
 
-    return proizvodi
+    return products
 
 
 #Pronalazi zadnju stranicu
@@ -82,9 +81,9 @@ async def scrape_all_pages():
     # Ako je vise stranica, uzmi zadnju, inace samo prva
     final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(url.format(page=zadnja_stranica))
 
-    proizvodi = parse_products(final_soup)
-    print(f"Scraping stranicu {zadnja_stranica} -> {len(proizvodi)} proizvoda")
-    return {"data": proizvodi, "title": title}
+    products = parse_products(final_soup)
+    print(f"Scraping page {zadnja_stranica} -> {len(products)} products")
+    return {"data": products, "title": title}
 
 #uvicorn scraper_instar:app --reload --port 8000
 
@@ -96,5 +95,5 @@ def scrape_instar():
     ukupno_stranica = find_total_pages_from_indicator(first_soup)
     zadnja_stranica = ukupno_stranica if ukupno_stranica else 1
     final_soup = first_soup if zadnja_stranica == 1 else fetch_soup(url.format(page=zadnja_stranica))
-    proizvodi = parse_products(final_soup)
-    return proizvodi
+    products = parse_products(final_soup)
+    return products

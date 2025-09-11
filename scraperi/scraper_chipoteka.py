@@ -2,7 +2,7 @@ from fastapi import FastAPI
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
-
+from .celery_app import app 
 app_scraper_chipoteka = FastAPI()
 
 HEADERS = {
@@ -20,49 +20,74 @@ def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
 
     soup = BeautifulSoup(resp.content, "html.parser")
 
-    proizvodi: List[Dict[str, Optional[str]]] = []
+    products: List[Dict[str, Optional[str]]] = []
     cards = soup.select("div.product-card-wrapper div.card.product-card")
     if not cards:
-        return proizvodi
+        return products
 
     for card in cards:
         body = card.select_one('div.card-body')
         if not body:
             continue
-        naziv_el = body.select_one('h2.product-title')
-        if not naziv_el:
+        title_el = body.select_one('h2.product-title')
+        if not title_el:
             continue
-        naziv = naziv_el.get_text(strip=True)
+        title = title_el.get_text(strip=True)
 
-        stara_el = body.select_one('div.product-price del')
-        stara_cijena = stara_el.get_text(strip=True) if stara_el else None
+        old_el = body.select_one('div.product-price del')
+        price_old = old_el.get_text(strip=True) if old_el else None
 
-        nova_wrap = body.select_one('div.product-price--web')
-        nova_cijena = None
-        if nova_wrap:
-            spans = nova_wrap.select('span')
+        price_wrap = body.select_one('div.product-price--web')
+        price_new = None
+        if price_wrap:
+            spans = price_wrap.select('span')
             if len(spans) >= 2:
-                nova_cijena = spans[1].get_text(strip=True)
+                price_new = spans[1].get_text(strip=True)
 
-        proizvodi.append({
-            "naziv_ch": naziv,
-            "nova_cijena_ch": nova_cijena,
-            "stara_cijena_ch": stara_cijena
+        products.append({
+            "name": title,
+            "price_new": price_new,
+            "price_old": price_old,
+            "source": "chipoteka",
         })
 
-    return proizvodi
+    return products
+
+def detect_last_page(max_probe: int = 200) -> int:
+    page = 1
+    while page <= max_probe:
+        items = scrape_page(page)
+        if not items:
+            return page - 1
+        page += 1
+    return max_probe
+
+@app.task(name='scraperi.scraper_chipoteka.scrape_chipoteka_chunk')
+def scrape_chipoteka_chunk(start_page: int, end_page: int):
+    if end_page < start_page:
+        return []
+    if end_page - start_page > 4:
+        end_page = start_page + 4
+    collected: List[Dict[str, Optional[str]]] = []
+    for p in range(start_page, end_page + 1):
+        part = scrape_page(p)
+        if not part:
+            break
+        collected.extend(part)
+    return collected
 
 @app_scraper_chipoteka.get("/")
 async def scrape_all_pages():
-    proizvodi: List[Dict[str, Optional[str]]] = []
-    page = 1
-    while True:
-        items = scrape_page(page)
+    last = detect_last_page()
+    if last == 0:
+        return {"data": [], "title": "Chipoteka", "count": 0}
+    products: List[Dict[str, Optional[str]]] = []
+    for p in range(1, last + 1):
+        items = scrape_page(p)
         if not items:
             break
-        proizvodi.extend(items)
-        page += 1
-    return {"data": proizvodi, "title": "Chipoteka", "count": len(proizvodi)}
+        products.extend(items)
+    return {"data": products, "title": "Chipoteka", "count": len(products)}
 
 #uvicorn scraper_chipoteka:app --reload --port 8003
 
