@@ -44,7 +44,7 @@ def scrape_page(page_number: int) -> List[Dict[str, Optional[str]]]:
 
     return products
 
-def detect_last_page(max_probe: int = 200) -> int:
+def detect_last_page(max_probe: int = 30) -> int:
     page = 1
     while page <= max_probe:
         items = scrape_page(page)

@@ -26,11 +26,11 @@ async def scrape_links_full():
     task_ids = []
     start = 1
     while start <= last:
-        end = min(start + 1, last)  
+        end = min(start + 4, last)  
         t = celery_client.send_task('scraperi.scraper_links.scrape_links_chunk', args=[start, end], queue='links_queue')
         task_ids.append(t.id)
         start = end + 1
-    return {"task_ids": task_ids, "pages": last, "chunk_size": 2}
+    return {"task_ids": task_ids, "pages": last, "chunk_size": 5}
 
 @app.post("/scrape/chipoteka")
 async def scrape_chipoteka_full():
@@ -40,11 +40,11 @@ async def scrape_chipoteka_full():
     task_ids = []
     start = 1
     while start <= last:
-        end = min(start + 1, last)
+        end = min(start + 4, last)
         t = celery_client.send_task('scraperi.scraper_chipoteka.scrape_chipoteka_chunk', args=[start, end], queue='chipoteka_queue')
         task_ids.append(t.id)
         start = end + 1
-    return {"task_ids": task_ids, "pages": last, "chunk_size": 2}
+    return {"task_ids": task_ids, "pages": last, "chunk_size": 5}
 
 
 @app.post("/scrape/all")
@@ -52,33 +52,39 @@ async def scrape_all_shops():
     # Instar
     instar_task = celery_client.send_task('scraperi.scraper_instar.scrape_instar', queue='instar_queue')
 
-    # Links
-    links_last = detect_last_page()
-    links_ids: list[str] = []
-    if links_last > 0:
-        start = 1
-        while start <= links_last:
-            end = min(start + 1, links_last)
-            t = celery_client.send_task('scraperi.scraper_links.scrape_links_chunk', args=[start, end], queue='links_queue')
-            links_ids.append(t.id)
-            start = end + 1
+    PAGE_CAP = 30
+    CHUNK_SIZE = 5 
 
-    # Chipoteka
-    chip_last = detect_last_page_chip()
+    links_ids: list[str] = []
     chip_ids: list[str] = []
-    if chip_last > 0:
-        start = 1
-        while start <= chip_last:
-            end = min(start + 1, chip_last)
-            t = celery_client.send_task('scraperi.scraper_chipoteka.scrape_chipoteka_chunk', args=[start, end], queue='chipoteka_queue')
-            chip_ids.append(t.id)
-            start = end + 1
+
+    start = 1
+    while start <= PAGE_CAP:
+        end = min(start + (CHUNK_SIZE - 1), PAGE_CAP)
+
+        # Links
+        t1 = celery_client.send_task(
+            'scraperi.scraper_links.scrape_links_chunk',
+            args=[start, end],
+            queue='links_queue',
+        )
+        links_ids.append(t1.id)
+
+        # Chipoteka
+        t2 = celery_client.send_task(
+            'scraperi.scraper_chipoteka.scrape_chipoteka_chunk',
+            args=[start, end],
+            queue='chipoteka_queue',
+        )
+        chip_ids.append(t2.id)
+
+        start = end + 1
 
     all_ids = [instar_task.id] + links_ids + chip_ids
     return {
         "instar": {"task_id": instar_task.id},
-        "links": {"task_ids": links_ids, "pages": links_last, "chunk_size": 2},
-        "chipoteka": {"task_ids": chip_ids, "pages": chip_last, "chunk_size": 2},
+        "links": {"task_ids": links_ids, "pages": PAGE_CAP, "chunk_size": CHUNK_SIZE},
+        "chipoteka": {"task_ids": chip_ids, "pages": PAGE_CAP, "chunk_size": CHUNK_SIZE},
         "all_task_ids": all_ids,
         "all_task_ids_csv": ",".join(all_ids),
     }
