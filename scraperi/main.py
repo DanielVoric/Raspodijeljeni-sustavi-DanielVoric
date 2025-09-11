@@ -26,11 +26,11 @@ async def scrape_links_full():
     task_ids = []
     start = 1
     while start <= last:
-        end = min(start + 4, last)  
+        end = min(start + 1, last)  
         t = celery_client.send_task('scraperi.scraper_links.scrape_links_chunk', args=[start, end], queue='links_queue')
         task_ids.append(t.id)
         start = end + 1
-    return {"task_ids": task_ids, "pages": last, "chunk_size": 5}
+    return {"task_ids": task_ids, "pages": last, "chunk_size": 2}
 
 @app.post("/scrape/chipoteka")
 async def scrape_chipoteka_full():
@@ -40,11 +40,48 @@ async def scrape_chipoteka_full():
     task_ids = []
     start = 1
     while start <= last:
-        end = min(start + 4, last)
+        end = min(start + 1, last)
         t = celery_client.send_task('scraperi.scraper_chipoteka.scrape_chipoteka_chunk', args=[start, end], queue='chipoteka_queue')
         task_ids.append(t.id)
         start = end + 1
-    return {"task_ids": task_ids, "pages": last, "chunk_size": 5}
+    return {"task_ids": task_ids, "pages": last, "chunk_size": 2}
+
+
+@app.post("/scrape/all")
+async def scrape_all_shops():
+    # Instar
+    instar_task = celery_client.send_task('scraperi.scraper_instar.scrape_instar', queue='instar_queue')
+
+    # Links
+    links_last = detect_last_page()
+    links_ids: list[str] = []
+    if links_last > 0:
+        start = 1
+        while start <= links_last:
+            end = min(start + 1, links_last)
+            t = celery_client.send_task('scraperi.scraper_links.scrape_links_chunk', args=[start, end], queue='links_queue')
+            links_ids.append(t.id)
+            start = end + 1
+
+    # Chipoteka
+    chip_last = detect_last_page_chip()
+    chip_ids: list[str] = []
+    if chip_last > 0:
+        start = 1
+        while start <= chip_last:
+            end = min(start + 1, chip_last)
+            t = celery_client.send_task('scraperi.scraper_chipoteka.scrape_chipoteka_chunk', args=[start, end], queue='chipoteka_queue')
+            chip_ids.append(t.id)
+            start = end + 1
+
+    all_ids = [instar_task.id] + links_ids + chip_ids
+    return {
+        "instar": {"task_id": instar_task.id},
+        "links": {"task_ids": links_ids, "pages": links_last, "chunk_size": 2},
+        "chipoteka": {"task_ids": chip_ids, "pages": chip_last, "chunk_size": 2},
+        "all_task_ids": all_ids,
+        "all_task_ids_csv": ",".join(all_ids),
+    }
 
 
 @app.get("/results/{task_id}")
