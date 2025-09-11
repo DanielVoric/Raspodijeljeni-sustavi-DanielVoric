@@ -5,6 +5,7 @@ from celery.result import AsyncResult
 from .scraper_links import detect_last_page
 from .scraper_chipoteka import detect_last_page as detect_last_page_chip
 from .celery_app import app as celery_client 
+from database.db import artikli
 
 app = FastAPI()
 
@@ -84,6 +85,37 @@ async def merge_results_post(raw: str = Body(..., media_type="text/plain")):
     """
     ids = re.findall(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', raw)
     return _merge_task_ids(ids)
+
+
+@app.post("/results/save")
+async def save_results_post(raw: str = Body(..., media_type="text/plain")):
+    ids = re.findall(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', raw)
+    merged = _merge_task_ids(ids)
+    items = merged.get("items", [])
+    inserted = 0
+    error = None
+    if items:
+        try:
+            res = artikli.insert_many(items)
+            inserted = len(res.inserted_ids)
+        except Exception as e:
+            error = str(e)
+    return {
+        "received_tasks": ids,
+        "incomplete": merged.get("incomplete", []),
+        "merged_count": merged.get("merged_count", 0),
+        "saved": inserted,
+        "error": error,
+    }
+
+
+@app.delete("/database/clear")
+async def clear_database():
+    try:
+        res = artikli.delete_many({})
+        return {"deleted": res.deleted_count}
+    except Exception as e:
+        return {"deleted": 0, "error": str(e)}
 
 
 if __name__ == "__main__":
