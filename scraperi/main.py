@@ -1,5 +1,6 @@
 import uvicorn
 import re
+from datetime import datetime
 from fastapi import FastAPI, Body
 from celery.result import AsyncResult
 from fastapi.staticfiles import StaticFiles
@@ -73,6 +74,10 @@ def _merge_task_ids(ids: list[str]):
             all_items.extend(r.result)
         elif r.state in ("PENDING", "STARTED"):
             pending.append(task_id)
+    ts = datetime.now().strftime("%d.%m.%Y/%H:%M")
+    for it in all_items:
+        if isinstance(it, dict) and "scraped_at" not in it:
+            it["scraped_at"] = ts
     return {
         "merged_count": len(all_items),
         "items": all_items,
@@ -93,11 +98,9 @@ async def merge_results_post(raw: str = Body(..., media_type="text/plain")):
 
 
 @app.get("/database/list")
-async def database_list(limit: int = 500):
+async def database_list():
     try:
-        if limit <= 0:
-            limit = 1
-        cursor = artikli.find({}, {"_id": 0}).limit(limit)
+        cursor = artikli.find({}, {"_id": 0})
         items = list(cursor)
         return {"count": len(items), "items": items}
     except Exception as e:
@@ -113,6 +116,10 @@ async def save_results_post(raw: str = Body(..., media_type="text/plain")):
     error = None
     if items:
         try:
+            ts = datetime.now().strftime("%d.%m.%Y/%H:%M")
+            for it in items:
+                if isinstance(it, dict) and "scraped_at" not in it:
+                    it["scraped_at"] = ts
             res = artikli.insert_many(items, ordered=False)
             inserted = len(res.inserted_ids)
         except Exception as e:

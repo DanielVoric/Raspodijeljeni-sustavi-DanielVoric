@@ -3,18 +3,14 @@ from bs4 import BeautifulSoup
 import re
 from .celery_app import app
 
-# header - ne radi bez
-DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/126.0.0.0 Safari/537.36"
-    )
+# header
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
 # dohvaca cijeli html sadrzaj stranice
 def fetch_soup(url: str) -> BeautifulSoup:
-    response = requests.get(url, headers=DEFAULT_HEADERS, timeout=30)
+    response = requests.get(url, headers=HEADERS, timeout=30)
     response.raise_for_status()
     return BeautifulSoup(response.text, "html.parser")
 

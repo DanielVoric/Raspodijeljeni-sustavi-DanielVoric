@@ -36,7 +36,6 @@
 	<div class="row">
 		<button id="loadTableBtn">Load Table (from Merge)</button>
 		<button id="loadDbBtn">Load from DB</button>
-		<input id="dbLimit" type="number" min="1" value="200" style="width:90px" />
 	</div>
 
 	<div class="row">
@@ -67,6 +66,7 @@
 				<th>Price New</th>
 				<th>Price Old</th>
 				<th>Discount %</th>
+				<th>Scraped At</th>
 			</tr>
 		</thead>
 		<tbody></tbody>
@@ -82,7 +82,6 @@
 		let currentTaskIds = [];
 		const loadTableBtn = document.getElementById('loadTableBtn');
 		const loadDbBtn = document.getElementById('loadDbBtn');
-		const dbLimit = document.getElementById('dbLimit');
 		const searchQuery = document.getElementById('searchQuery');
 		const searchBtn = document.getElementById('searchBtn');
 		const clearSearchBtn = document.getElementById('clearSearchBtn');
@@ -140,12 +139,14 @@
 				const tdNew = document.createElement('td');
 				const tdOld = document.createElement('td');
 				const tdDisc = document.createElement('td');
+				const tdScraped = document.createElement('td');
 				tdSource.textContent = it.source || '';
 				tdName.textContent = it.name || '';
 				tdNew.textContent = it.price_new || '';
 				tdOld.textContent = it.price_old || '';
 				tdDisc.textContent = (typeof it.discount_pct === 'number') ? `${it.discount_pct}%` : '';
-				tr.append(tdSource, tdName, tdNew, tdOld, tdDisc);
+				tdScraped.textContent = it.scraped_at || '';
+				tr.append(tdSource, tdName, tdNew, tdOld, tdDisc, tdScraped);
 				tableBody.appendChild(tr);
 			}
 		}
@@ -186,7 +187,10 @@
 			setStatus(actionStatus, 'Merging…', true);
 			try {
 				const data = await postIds('/results/merge');
-				setStatus(actionStatus, `Merged ${data.merged_count} items, ${data.incomplete?.length || 0} pending`);
+				const pending = data.incomplete?.length || 0;
+				const pendingText = pending > 0 ? `${pending} Task(s) pending` : `${pending} pending`;
+				const msg = `Merged ${data.merged_count} items, ${pendingText}` + (pending > 0 ? '  wait just a little bit longer before loading.' : '');
+				setStatus(actionStatus, msg);
 			} catch (err) {
 				setStatus(actionStatus, 'Failed: ' + err.message, false);
 			}
@@ -229,8 +233,7 @@
 		loadDbBtn.addEventListener('click', async () => {
 			setStatus(actionStatus, 'Loading from DB…', true);
 			try {
-				const lim = Math.max(1, parseInt(dbLimit.value || '200', 10));
-				const res = await fetch(`/database/list?limit=${encodeURIComponent(lim)}`);
+				const res = await fetch(`/database/list`);
 				if (!res.ok) throw new Error('HTTP ' + res.status);
 				const data = await res.json();
 				loadedItems = data.items || [];
