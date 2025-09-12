@@ -1,0 +1,58 @@
+services:
+  api:
+    build: .
+    container_name: akcijosc-api
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URI=mongodb+srv://dvoric_db_user:wAwEVVsuJdBQmCh3@akcijosc.1qsh5j4.mongodb.net/?retryWrites=true&w=majority&appName=AkcijoSC
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  worker_links:
+    build: .
+    container_name: akcijosc-worker-links
+    command: ["python", "-m", "celery", "-A", "scraperi.celery_app:app", "worker", "-Q", "links_queue", "-P", "gevent", "-c", "100", "-Ofair", "-n", "links@%h", "-l", "INFO"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URI=mongodb+srv://dvoric_db_user:wAwEVVsuJdBQmCh3@akcijosc.1qsh5j4.mongodb.net/?retryWrites=true&w=majority&appName=AkcijoSC
+    depends_on:
+      - redis
+
+  worker_chipoteka:
+    build: .
+    container_name: akcijosc-worker-chipoteka
+    command: ["python", "-m", "celery", "-A", "scraperi.celery_app:app", "worker", "-Q", "chipoteka_queue", "-P", "gevent", "-c", "100", "-Ofair", "-n", "chipoteka@%h", "-l", "INFO"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URI=mongodb+srv://dvoric_db_user:wAwEVVsuJdBQmCh3@akcijosc.1qsh5j4.mongodb.net/?retryWrites=true&w=majority&appName=AkcijoSC
+    depends_on:
+      - redis
+
+  worker_instar:
+    build: .
+    container_name: akcijosc-worker-instar
+    command: ["python", "-m", "celery", "-A", "scraperi.celery_app:app", "worker", "-Q", "instar_queue", "-P", "gevent", "-c", "100", "-Ofair", "-n", "instar@%h", "-l", "INFO"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URI=mongodb+srv://dvoric_db_user:wAwEVVsuJdBQmCh3@akcijosc.1qsh5j4.mongodb.net/?retryWrites=true&w=majority&appName=AkcijoSC
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: akcijosc-redis
+    ports:
+      - "6379:6379"
+
+  # mongo:
+  #   image: mongo:6
+  #   container_name: akcijosc-mongo
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+
+# volumes:
+#   mongo_data:
